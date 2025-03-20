@@ -1,0 +1,7 @@
+pandas
+notebook
+qdrant-client
+scikit-learn
+tqdm
+ipywidgets
+openai
