@@ -1,15 +1,22 @@
 version: '3.8'
 
 services:
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.4.3
-    container_name: elasticsearch
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: always
+    container_name: qdrant
     ports:
-      - "9200:9200"
-      - "9300:9300"
+      - 6333:6333
+      - 6334:6334
+    expose:
+      - 6333
+      - 6334
+      - 6335
+    configs:
+      - source: qdrant_config
+        target: /qdrant/config/production.yaml
+    volumes:
+      - ./qdrant_data:/qdrant/storage
 
   ollama:
     image: ollama/ollama
@@ -21,3 +28,8 @@ services:
 
 volumes:
   ollama:
+
+configs:
+  qdrant_config:
+    content: |
+      log_level: INFO
