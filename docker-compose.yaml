@@ -12,24 +12,25 @@ services:
       - 6333
       - 6334
       - 6335
-    configs:
-      - source: qdrant_config
-        target: /qdrant/config/production.yaml
     volumes:
       - ./qdrant_data:/qdrant/storage
+      - ./qdrant_config:/qdrant/config
+    networks:
+      - rag-network
 
   ollama:
-    image: ollama/ollama
+    image: ollama/ollama:latest
     container_name: ollama
     volumes:
       - ollama:/root/.ollama
     ports:
       - "11434:11434"
+    networks:
+      - rag-network
 
 volumes:
   ollama:
 
-configs:
-  qdrant_config:
-    content: |
-      log_level: INFO
+networks:
+  rag-network:
+    driver: bridge
