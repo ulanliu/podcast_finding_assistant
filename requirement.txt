@@ -7,3 +7,4 @@ ipywidgets
 openai
 fastembed
 huggingface_hub
+sentence_transformers
