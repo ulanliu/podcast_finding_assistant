@@ -24,6 +24,9 @@ class SemanticSearchRetriever:
         # Load podcast metadata
         self.collection_name = collection_name
         self.podcast_data = self.load_podcast_data(podcast_data_path)
+        self.embedding_cache = {}  # Cache for query embeddings
+        self.episode_text_cache = {}  # Cache for episode texts
+        self.vector_search_cache = {}  # Cache for vector search results
         
         # Initialize embedding model for vector search
         try:
@@ -90,9 +93,18 @@ class SemanticSearchRetriever:
             print(f"Error loading podcast data: {e}")
             return pd.DataFrame()
             
-    def vector_search(self, query, top_k=100):
+    def vector_search(self, query, top_k=20):
         """Initial candidate retrieval using vector search in Qdrant with embedding model"""
-        query_vector = self.embedding_model.encode(query)
+        cache_key = (query, top_k)
+        if cache_key in self.vector_search_cache:
+            return self.vector_search_cache[cache_key]
+        
+        # Get embedding (with caching)
+        if query in self.embedding_cache:
+            query_vector = self.embedding_cache[query]
+        else:
+            query_vector = self.embedding_model.encode(query)
+            self.embedding_cache[query] = query_vector
         
         # Use Qdrant
         search_results = self.client.search(
@@ -100,7 +112,13 @@ class SemanticSearchRetriever:
             query_vector=query_vector.tolist(),
             limit=top_k
         )
-        return [(res.id, res.score) for res in search_results]
+        
+        # Format results as expected
+        results = [(res.id, res.score) for res in search_results]
+        
+        # Cache result before returning
+        self.vector_search_cache[cache_key] = results
+        return results
             
     def get_episode_text(self, episode_id):
         """Get text representation for an episode from Qdrant or podcast_data"""
@@ -175,10 +193,29 @@ class SemanticSearchRetriever:
             }
         return {'episode': episode_id, 'title': f"Episode {episode_id}"}
     
-    def rerank_with_cross_encoder(self, query, candidates, top_k=10):
+    def rerank_with_cross_encoder(self, query, candidates, top_k=5):
         """Re-rank candidates using the cross-encoder reranker model"""
+        # Collect all candidates at once
         candidate_texts = []
         candidate_ids = []
+        
+        for episode_id, _ in candidates:
+            if episode_id in self.episode_text_cache:  # See caching optimization below
+                episode_text = self.episode_text_cache[episode_id]
+            else:
+                episode_text = self.get_episode_text(episode_id)
+                self.episode_text_cache[episode_id] = episode_text
+                
+            if not episode_text:
+                continue
+                
+            candidate_texts.append(episode_text)
+            candidate_ids.append(episode_id)
+        
+        # Process all pairs in a single batch (instead of one by one)
+        input_pairs = [[query, text] for text in candidate_texts]
+        scores = self.reranker_model.predict(input_pairs, batch_size=32)  # Add batch_size parameter
+        
         
         # Prepare candidate pairs for reranking
         for episode_id, _ in candidates:
@@ -210,7 +247,7 @@ class SemanticSearchRetriever:
             # Fallback to original order if reranking fails
             return [(id, 0.0) for id in candidate_ids][:top_k]
     
-    def two_stage_semantic_search(self, query, first_stage_k=100, top_k=10):
+    def two_stage_semantic_search(self, query, first_stage_k=20, top_k=5):
         """
         Perform two-stage semantic search:
         1. Get initial candidates using vector search with embedding model
@@ -288,7 +325,7 @@ class SemanticSearchRetriever:
             
             for query, true_id in tqdm(test_queries, desc="Cross-encoder rerank"):
                 search_results = self.two_stage_semantic_search(
-                    query, first_stage_k=100, top_k=k
+                    query, first_stage_k=20, top_k=k
                 )
                 results_ids = [id for id, _ in search_results]
                 relevance = [true_id == id for id in results_ids]
@@ -300,7 +337,7 @@ class SemanticSearchRetriever:
                 
         return results
         
-    def search_and_explain(self, query, top_k=5, first_stage_k=100, verbose=True):
+    def search_and_explain(self, query, top_k=5, first_stage_k=20, verbose=True):
         """
         Perform semantic search and explain results
         

@@ -1,0 +1,30 @@
+{
+  "vector_search": {
+    "5": {
+      "hit_rate": 0.4352078239608802,
+      "mrr": 0.3071719641401795,
+      "total_queries": 2045,
+      "successful_queries": 890
+    },
+    "10": {
+      "hit_rate": 0.5290953545232274,
+      "mrr": 0.319692824154927,
+      "total_queries": 2045,
+      "successful_queries": 1082
+    }
+  },
+  "cross_encoder_rerank": {
+    "5": {
+      "hit_rate": 0.5960880195599022,
+      "mrr": 0.5422330888345567,
+      "total_queries": 2045,
+      "successful_queries": 1219
+    },
+    "10": {
+      "hit_rate": 0.6136919315403423,
+      "mrr": 0.544577172352234,
+      "total_queries": 2045,
+      "successful_queries": 1255
+    }
+  }
+}
