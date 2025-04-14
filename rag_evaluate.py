@@ -13,15 +13,24 @@ login(token=huggingface_token)
 # Step 1: Load the datasets
 def load_data():
     """Load the podcast data and ground truth data."""
-    # Load podcast data from JSON
-    with open('podcast_topic.json', 'r', encoding='utf-8') as f:
-        podcast_topic = json.load(f)
+    # Load podcast data from CSV instead of JSON
+    try:
+        podcast_data = pd.read_csv('podcast_data.csv')
+        print(f"Loaded podcast data with {len(podcast_data)} episodes")
+    except Exception as e:
+        print(f"Error loading podcast data: {e}")
+        podcast_data = pd.DataFrame()
     
     # Load ground truth data from JSON
-    with open('podcast_ground_truth.json', 'r', encoding='utf-8') as f:
-        ground_truth = json.load(f)
+    try:
+        with open('podcast_ground_truth.json', 'r', encoding='utf-8') as f:
+            ground_truth = json.load(f)
+        print(f"Loaded ground truth data with {len(ground_truth)} episodes")
+    except Exception as e:
+        print(f"Error loading ground truth data: {e}")
+        ground_truth = {}
     
-    return podcast_topic, ground_truth
+    return podcast_data, ground_truth
 
 # Step 2: Initialize the embedding model
 def init_model(model_name="intfloat/multilingual-e5-base"):
@@ -31,16 +40,11 @@ def init_model(model_name="intfloat/multilingual-e5-base"):
     return model
 
 # Step 3: Create a Qdrant collection and upload podcast data
-def setup_qdrant(podcast_topic, model, collection_name="podcast_collection"):
+def setup_qdrant(podcast_data, model, collection_name="podcast_collection"):
     """Create a Qdrant collection and upload podcast vectors."""
     # Initialize Qdrant client
     client = QdrantClient(url="http://localhost:6333")
 
-    # Get vector dimension with a sample embedding
-    # sample_text = "Sample text to determine vector dimensions"
-    # sample_vector = model.encode(sample_text)
-    # vector_size = len(sample_vector)
-    
     # Try to create collection (ignore if exists)
     try:
         client.create_collection(
@@ -51,54 +55,68 @@ def setup_qdrant(podcast_topic, model, collection_name="podcast_collection"):
             )
         )
         print(f"Created new collection: {collection_name}")
+    
+        # Embed and upload each podcast episode
+        points = []
+        
+        for _, row in tqdm(podcast_data.iterrows(), total=len(podcast_data), desc="Embedding podcast episodes"):
+            episode_id = row['episode']
+            
+            # Create text from available fields
+            text_parts = []
+            
+            # Add title
+            if not pd.isna(row.get('title')):
+                text_parts.append(row['title'])
+            
+            # Add summary if available
+            if not pd.isna(row.get('summary')):
+                text_parts.append(row['summary'])
+                
+            # Add song recommendation if available
+            if not pd.isna(row.get('song_recommendation')):
+                text_parts.append(f"Song: {row['song_recommendation']}")
+                
+            full_text = " ".join(text_parts)
+            
+            # Skip if no text to embed
+            if not full_text:
+                print(f"Skipping episode {episode_id} - No content to embed")
+                continue
+            
+            # Embed the text
+            embedding = model.encode(full_text)
+            
+            # Create a point
+            points.append(
+                models.PointStruct(
+                    id=int(episode_id),
+                    vector=embedding.tolist(),
+                    payload={
+                        'episode': int(episode_id),
+                        'title': row.get('title', f"Episode {episode_id}"),
+                        'summary': row.get('summary', ""),
+                        'song': row.get('song_recommendation', ""),
+                        'publish_date': row.get('publish_date', ""),
+                        'full_text': full_text
+                    }
+                )
+            )
+        
+        # Upload points in batches
+        batch_size = 100
+        for i in range(0, len(points), batch_size):
+            batch = points[i:i+batch_size]
+            client.upsert(
+                collection_name=collection_name,
+                points=batch
+            )
+        
+        print(f"Uploaded {len(points)} episodes to Qdrant.")
+        
     except Exception as e:
         print(f"Collection may already exist: {e}")
     
-    # Embed and upload each podcast episode
-    points = []
-    for episode_id, content in tqdm(podcast_topic.items(), desc="Embedding podcast topics"):
-        # Get topics and song if available
-        topics = content.get('topic', [])
-        song = content.get('song', "")
-        
-        # Create a text representation combining all topics
-        topics_text = '; '.join(topics) if topics else ""
-        
-        # Add song if available and not 'null' or NaN
-        full_text = topics_text
-        if song and song != "null" and song != "nan":
-            full_text += f"; Song: {song}"
-        
-        # Skip if no text to embed
-        if not full_text:
-            continue
-        
-        # Embed the text
-        embedding = model.encode(full_text)
-        
-        # Create a point
-        points.append(
-            models.PointStruct(
-                id=int(episode_id),
-                vector=embedding.tolist(),
-                payload={
-                    'episode': int(episode_id),
-                    'topics': topics,
-                    'song': song
-                }
-            )
-        )
-    
-    # Upload points in batches
-    batch_size = 100
-    for i in range(0, len(points), batch_size):
-        batch = points[i:i+batch_size]
-        client.upsert(
-            collection_name=collection_name,
-            points=batch
-        )
-    
-    print(f"Uploaded {len(points)} episodes to Qdrant.")
     return client
 
 # Step 4: Evaluate retrieval using ground truth data
@@ -160,7 +178,7 @@ def calculate_metrics(relevance_results):
     }
     
 # Step 6: Evaluate for different k values
-def evaluate_multiple_k(client, model, ground_truth, collection_name="podcast_collection", k_values=[3, 5, 10]):
+def evaluate_multiple_k(client, model, ground_truth, collection_name="podcast_collection", k_values=[5, 10]):
     """Evaluate retrieval for different k values."""
     results = {}
     
@@ -178,14 +196,14 @@ def evaluate_multiple_k(client, model, ground_truth, collection_name="podcast_co
 def main():
     # Load data
     print("Loading data...")
-    podcast_topic, ground_truth = load_data()
+    podcast_data, ground_truth = load_data()
 
     # Initialize model
     model = init_model()
 
     # Setup Qdrant
     print("Setting up Qdrant...")
-    client = setup_qdrant(podcast_topic, model)
+    client = setup_qdrant(podcast_data, model)
 
     # Evaluate for different k values
     print("Evaluating search performance...")

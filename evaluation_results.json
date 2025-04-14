@@ -1,20 +1,14 @@
 {
-  "3": {
-    "hit_rate": 0.5124694376528117,
-    "mrr": 0.4268133659331709,
-    "total_queries": 2045,
-    "successful_queries": 1048
-  },
   "5": {
-    "hit_rate": 0.5687041564792176,
-    "mrr": 0.43957620211899034,
+    "hit_rate": 0.4352078239608802,
+    "mrr": 0.3071719641401795,
     "total_queries": 2045,
-    "successful_queries": 1163
+    "successful_queries": 890
   },
   "10": {
-    "hit_rate": 0.6518337408312959,
-    "mrr": 0.45073873559203687,
+    "hit_rate": 0.5290953545232274,
+    "mrr": 0.319692824154927,
     "total_queries": 2045,
-    "successful_queries": 1333
+    "successful_queries": 1082
   }
 }
